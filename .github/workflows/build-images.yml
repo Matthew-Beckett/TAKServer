@@ -1,0 +1,152 @@
+name: build-images
+
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'docker/**'
+      - '.github/workflows/build-images.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: takserver-images-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  TAK_GRADLE_CI_MODE: 'true'
+
+jobs:
+  build:
+    name: Build and publish images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Gradle derives the version from `git describe` - needs tags.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle (with build cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build TAK Server artifacts
+        run: |
+          cd src
+          ./gradlew --no-daemon --stacktrace \
+            :takserver-core:bootWar \
+            :takserver-plugin-manager:bootJar \
+            :takserver-usermanager:shadowJar \
+            :takserver-schemamanager:shadowJar \
+            :takserver-common:igniteExtensions
+
+      - name: Stage docker build context
+        run: docker/stage-context.sh
+
+      - name: Resolve TAK Server version
+        id: version
+        run: |
+          war=$(ls src/takserver-core/build/libs/takserver-core-*.war | head -n1)
+          v=$(basename "$war" | sed -E 's/^takserver-core-//; s/\.war$//')
+          echo "tak_version=$v" >> "$GITHUB_OUTPUT"
+          echo "TAK Server version: $v"
+
+      - name: Compute GHCR namespace
+        id: ns
+        run: |
+          owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          echo "base=ghcr.io/${owner}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata - takserver
+        id: meta-takserver
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.ns.outputs.base }}/takserver
+          tags: |
+            type=raw,value=${{ steps.version.outputs.tak_version }}
+            type=sha
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Image metadata - takserver-ignite
+        id: meta-takserver-ignite
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.ns.outputs.base }}/takserver-ignite
+          tags: |
+            type=raw,value=${{ steps.version.outputs.tak_version }}
+            type=sha
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Image metadata - takserver-ca
+        id: meta-takserver-ca
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.ns.outputs.base }}/takserver-ca
+          tags: |
+            type=raw,value=${{ steps.version.outputs.tak_version }}
+            type=sha
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push takserver
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          file: docker/Dockerfile.takserver
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-takserver.outputs.tags }}
+          labels: ${{ steps.meta-takserver.outputs.labels }}
+          cache-from: type=gha,scope=takserver
+          cache-to: type=gha,mode=max,scope=takserver
+          provenance: false
+
+      - name: Build and push takserver-ignite
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          file: docker/Dockerfile.takserver-ignite
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-takserver-ignite.outputs.tags }}
+          labels: ${{ steps.meta-takserver-ignite.outputs.labels }}
+          cache-from: type=gha,scope=takserver-ignite
+          cache-to: type=gha,mode=max,scope=takserver-ignite
+          provenance: false
+
+      - name: Build and push takserver-ca
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          file: docker/Dockerfile.takserver-ca
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-takserver-ca.outputs.tags }}
+          labels: ${{ steps.meta-takserver-ca.outputs.labels }}
+          cache-from: type=gha,scope=takserver-ca
+          cache-to: type=gha,mode=max,scope=takserver-ca
+          provenance: false
