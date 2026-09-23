@@ -1,0 +1,27 @@
+# Certificate Authority toolkit for TAK Server.
+# Generates the CA, server and client certificates TAK Server requires.
+# Output lands in /opt/tak/certs/files - mount a volume there to collect it.
+#
+#   docker run --rm \
+#     -e CA_NAME=tak -e STATE=XX -e CITY=XX -e ORGANIZATIONAL_UNIT=tak \
+#     -v "$PWD/certs/files:/opt/tak/certs/files" takserver-ca
+#
+# Pass a command to run a specific script instead, e.g.:
+#   docker run ... takserver-ca ./makeCert.sh client user2
+FROM eclipse-temurin:17-jre-noble
+
+# hadolint ignore=DL3008
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 1001 --gid 0 --home-dir /opt/tak tak
+
+WORKDIR /opt/tak/certs
+
+# TAK cert generation scripts (staged by docker/stage-context.sh)
+COPY --chown=1001:0 context/certs/ ./
+COPY --chown=1001:0 scripts/ca-entrypoint.sh ./ca-entrypoint.sh
+RUN chmod 0755 ./*.sh && mkdir -p /opt/tak/certs/files && chown -R 1001:0 /opt/tak
+
+USER 1001
+ENTRYPOINT ["./ca-entrypoint.sh"]

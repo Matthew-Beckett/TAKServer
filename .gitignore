@@ -1,0 +1,19 @@
+# Staged docker build context (populated by docker/stage-context.sh)
+docker/context/
+
+# Gradle
+src/**/build/
+**/.gradle/
+
+# Node (takserver-tool-ui / webapp-angular)
+**/node_modules/
+**/.angular/
+src/takserver-core/src/main/webapp-angular/dist/
+
+# Files generated into the source tree by the Gradle build
+src/takserver-core/src/main/resources/shortver.txt
+src/takserver-core/src/main/resources/ver.json
+src/takserver-package/CI_ENV_VARS
+
+# Ignite runtime work dir when run from the repo
+src/takserver-core/ignite/

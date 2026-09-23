@@ -1,0 +1,48 @@
+# Apache Ignite node for TAK Server clustering.
+# Minimal JRE base, non-root, with the TAK ignite-extensions.jar baked in.
+FROM eclipse-temurin:17-jre-noble
+
+ARG IGNITE_VERSION=2.17.0
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# hadolint ignore=DL3008
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl unzip \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 1001 --gid 0 --home-dir /opt/ignite tak
+
+# Download and checksum-verify the Apache Ignite binary distribution.
+RUN set -e; \
+    url="https://archive.apache.org/dist/ignite/${IGNITE_VERSION}/apache-ignite-${IGNITE_VERSION}-bin.zip"; \
+    curl -fsSL -o /tmp/ignite.zip "$url"; \
+    expected="$(curl -fsSL "${url}.sha512" | tr -d '[:space:]' | grep -oE '[0-9a-fA-F]{128}')"; \
+    echo "${expected}  /tmp/ignite.zip" | sha512sum -c -; \
+    unzip -q /tmp/ignite.zip -d /opt; \
+    mv "/opt/apache-ignite-${IGNITE_VERSION}-bin" /opt/ignite; \
+    rm /tmp/ignite.zip
+
+# Bake in the optional modules the deployment enables upstream via OPTION_LIBS,
+# since this image launches ignite.sh directly.
+RUN for m in ignite-kubernetes ignite-rest-http ignite-json ignite-slf4j ignite-urideploy ignite-web; do \
+      cp /opt/ignite/libs/optional/$m/*.jar /opt/ignite/libs/ 2>/dev/null || true; \
+    done
+
+# TAK's Ignite extensions (built from takserver-common). Can be overridden at
+# runtime by a ConfigMap mount at /opt/ignite/libs/ignite-extensions.jar.
+COPY --chown=1001:0 context/ignite-extensions.jar /opt/ignite/libs/
+
+# exec-form launcher so SIGTERM reaches the JVM.
+COPY --chown=1001:0 context/ignite.sh /opt/ignite/bin/ignite.sh
+RUN chmod 0755 /opt/ignite/bin/ignite.sh \
+ && mkdir -p /opt/ignite/work /opt/ignite/config \
+ && chown -R 1001:0 /opt/ignite
+
+ENV IGNITE_HOME=/opt/ignite
+USER 1001
+WORKDIR /opt/ignite
+
+# Config file is expected at config/default-config.xml - mount your own, or a
+# ConfigMap key named default-config.xml (see the helm chart).
+EXPOSE 47100 47500 10800 10900 11211 49112 8080
+ENTRYPOINT ["./bin/ignite.sh"]

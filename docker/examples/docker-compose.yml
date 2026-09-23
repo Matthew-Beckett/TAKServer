@@ -1,0 +1,69 @@
+# Minimal standalone (non-clustered) TAK Server for Docker users.
+#
+# Prerequisites - from the repository root:
+#
+#   1. Generate development certificates:
+#        mkdir -p docker/examples/data/certs
+#        docker run --rm \
+#          -e CA_NAME=tak -e STATE=XX -e CITY=XX -e ORGANIZATIONAL_UNIT=tak \
+#          -v "$PWD/docker/examples/data/certs:/opt/tak/certs/files" \
+#          ghcr.io/<owner>/takserver-ca:latest
+#
+#   2. Create CoreConfig.xml (NOT stored in the image - it is mounted):
+#        mkdir -p docker/examples/data
+#        cp src/takserver-core/example/CoreConfig.example.docker.xml \
+#           docker/examples/data/CoreConfig.xml
+#      Edit it: repository connection url should be jdbc:postgresql://takdb:5432/cot
+#      with username martiuser and the POSTGRES_PASSWORD you choose below.
+#
+#   3. Run:
+#        POSTGRES_PASSWORD=<password> docker compose -f docker/examples/docker-compose.yml up -d
+#
+# TAK Server listens on 8089 (CoT streaming, mTLS), 8443 (web/admin, client
+# certs), 8446 (cert enrollment) and 8444/9000/9001 (federation).
+
+services:
+  takdb:
+    image: postgis/postgis:15-3.4
+    environment:
+      POSTGRES_USER: martiuser
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the environment}
+      POSTGRES_DB: cot
+    volumes:
+      - takdb-data:/var/lib/postgresql/data
+    networks: [taknet]
+
+  takserver:
+    image: ghcr.io/tak-product-center/takserver:latest   # or your locally built tag
+    command: ["all"]
+    environment:
+      POSTGRES_HOST: takdb
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: cot
+      POSTGRES_USER: martiuser
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the environment}
+      CONFIG_MAX_HEAP_MB: "1024"
+      MESSAGING_MAX_HEAP_MB: "2048"
+      API_MAX_HEAP_MB: "1024"
+    volumes:
+      # CoreConfig.xml and certificates are supplied at runtime, never baked in.
+      - ./data/CoreConfig.xml:/opt/tak/CoreConfig.xml:ro
+      - ./data/certs:/opt/tak/certs/files
+      - tak-logs:/opt/tak/logs
+    ports:
+      - "8089:8089"   # CoT streaming (mTLS)
+      - "8443:8443"   # web UI / admin API (client certificates)
+      - "8446:8446"   # certificate enrollment (no client auth)
+      - "8444:8444"   # federation truststore
+      - "9000:9000"   # federation v1
+      - "9001:9001"   # federation v2
+    depends_on:
+      - takdb
+    networks: [taknet]
+
+networks:
+  taknet:
+
+volumes:
+  takdb-data:
+  tak-logs:

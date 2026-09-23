@@ -1,0 +1,38 @@
+# TAK Server runtime image.
+#   One image, multiple roles selected by the first arg: config | messaging |
+#   api | plugins | dbsetup | usermanager | all (standalone single container).
+#
+# Minimal JRE base, non-root (uid 1001, gid 0 for OpenShift compatibility).
+# CoreConfig.xml, TAKIgniteConfig.xml and certificates are NOT baked in -
+# mount them at runtime (see docker/README.md).
+FROM eclipse-temurin:17-jre-noble
+
+# hadolint ignore=DL3008
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends netcat-openbsd curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 1001 --gid 0 --home-dir /opt/tak tak
+
+WORKDIR /opt/tak
+
+# Build artifacts (staged by docker/stage-context.sh)
+COPY --chown=1001:0 context/takserver.war \
+                    context/takserver-pm.jar \
+                    context/UserManager.jar \
+                    context/SchemaManager.jar \
+                    context/UserAuthenticationFile.xml \
+                    context/logging-restrictsize.xml \
+                    ./
+
+# Runtime scripts (mode bits are set by stage-context.sh)
+COPY --chown=1001:0 scripts/ ./scripts/
+RUN chmod -R u+rx,go-w /opt/tak/scripts \
+ && mkdir -p /opt/tak/certs/files /opt/tak/logs /opt/tak/lib /opt/tak/plugins \
+ && chown -R 1001:0 /opt/tak
+
+USER 1001
+
+EXPOSE 8080 8089 8443 8444 8446 9000 9001
+
+ENTRYPOINT ["/opt/tak/scripts/entrypoint.sh"]
+CMD ["all"]

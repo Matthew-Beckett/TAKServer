@@ -23,7 +23,7 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "CI=false react-scripts build && mv build/static/js/main*.js build/static/js/main.min.js && mv build/static/css/main*.css build/static/css/main.min.css  && rm build/static/js/*.txt",
+    "build": "CI=false DISABLE_ESLINT_PLUGIN=true react-scripts build && mv build/static/js/main*.js build/static/js/main.min.js && mv build/static/css/main*.css build/static/css/main.min.css  && rm build/static/js/*.txt",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
@@ -44,5 +44,10 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "overrides": {
+    "jest": "27.5.1",
+    "eslint-plugin-jest": "27.9.0",
+    "@types/jest": "27.5.2"
   }
 }
