@@ -1,0 +1,35 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Monitor only Docker images and Helm chart dependencies. All other package managers (Gradle/Maven/npm under src/) are disabled - TAK Server's own dependency tree is intentionally not tracked here.",
+  "extends": [
+    "config:recommended"
+  ],
+  "enabledManagers": [
+    "dockerfile",
+    "helmv3",
+    "helm-values"
+  ],
+  "labels": [
+    "dependencies",
+    "renovate"
+  ],
+  "postUpdateOptions": [
+    "helmUpdateSubChartArchives"
+  ],
+  "packageRules": [
+    {
+      "description": "TAK Server images are built and tagged from this repository's git version (5.7-RELEASE-*) - do not attempt to update them.",
+      "matchPackageNames": [
+        "ghcr.io/matthew-beckett/takserver",
+        "ghcr.io/matthew-beckett/takserver-ca",
+        "ghcr.io/matthew-beckett/takserver-ignite"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "postgis is pinned to PostgreSQL 15 + PostGIS 3 - TAK Server requires postgresql-15-postgis-3. Only allow patch tags within that line.",
+      "matchPackageNames": ["postgis/postgis"],
+      "allowedVersions": "/^15-3\\./"
+    }
+  ]
+}
