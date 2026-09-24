@@ -196,7 +196,7 @@ certs:
     image:
       registry: docker.io
       repository: alpine/kubectl
-      tag: "1.36.4"
+      tag: "1.37.0"
       pullPolicy: IfNotPresent
 
 # -- Database location and credentials lookup. When postgresql.enabled the
