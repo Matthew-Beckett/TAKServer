@@ -1,0 +1,19 @@
+apiVersion: v2
+name: takserver
+description: |
+  Single-node TAK Server. Deploys the all-in-one takserver container
+  (config + messaging + api in one pod) with a bundled PostGIS database,
+  generated development certificates, and a ClusterIP service. Suitable for
+  development, evaluation and small standalone deployments. For an
+  individually scalable microservices deployment see charts/takserver-cluster.
+type: application
+version: 0.1.0
+appVersion: 5.7-RELEASE-14
+keywords:
+  - tak
+  - takserver
+  - cot
+  - situational-awareness
+home: https://github.com/TAK-Product-Center/takserver
+sources:
+  - https://github.com/TAK-Product-Center/takserver

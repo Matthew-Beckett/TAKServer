@@ -1,0 +1,198 @@
+# Default values for the single-node TAK Server chart.
+# `helm install tak charts/takserver` produces a working server reachable via
+# ClusterIP with generated development certificates and a bundled PostGIS db.
+
+# -- Global settings shared by all images in this chart.
+global:
+  image:
+    # -- Registry override for every image in the chart (air-gapped /
+    # mirrored environments). Per-image `registry` values take precedence.
+    registry: ""
+  # -- References to secrets in the same namespace for pulling private images.
+  imagePullSecrets: []
+  # imagePullSecrets:
+  #   - name: reg-cred
+  postgresql:
+    # -- Database credentials. Rendered into CoreConfig.xml, the bundled
+    # database container, and the pods' POSTGRES_* env. Change together or
+    # point `database.existingSecret` at a secret you manage.
+    auth:
+      username: martiuser
+      password: atakatak
+      database: cot
+      # -- Existing Secret holding the DB password (key
+      # `database.existingSecretPasswordKey`, default "password"). Pods and
+      # the bundled database read it instead of the plaintext above; the
+      # plaintext `password` must still match for the rendered CoreConfig.
+      existingSecret: ""
+
+image:
+  registry: ghcr.io
+  repository: matthew-beckett/takserver
+  # -- Image tag. Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Single-node deployment - the `all` container role embeds an Ignite server,
+# so scaling beyond 1 replica is not supported.
+replicaCount: 1
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  # -- Create the Role/RoleBinding used by the certificate generation job to
+  # write the certs Secret. Disable only if you supply `certs.existingSecret`
+  # or manage RBAC yourself.
+  create: true
+
+service:
+  type: ClusterIP
+  annotations: {}
+  ports:
+    cotTls: 8089        # CoT streaming input (mutual TLS)
+    https: 8443         # WebTAK / admin UI / REST API (client cert)
+    fedHttps: 8444      # federation over HTTPS (fed truststore)
+    certEnroll: 8446    # certificate enrollment (no client auth)
+    federationV1: 9000  # federation v1
+    federationV2: 9001  # federation v2
+
+# -- CoreConfig.xml is rendered into a Secret from these values. For full
+# control set `coreConfig.existingSecret` to a Secret you manage that
+# contains a `CoreConfig.xml` key.
+coreConfig:
+  existingSecret: ""
+  # -- Extra XML fragments appended inside the <Configuration> element.
+  extraXml: ""
+  repository:
+    numDbConnections: 16
+    primaryKeyBatchSize: 500
+    insertionBatchSize: 500
+
+federation:
+  # -- Emit the <federation> element in CoreConfig.xml and expose ports
+  # 9000/9001 on the service.
+  enabled: true
+
+certs:
+  # -- Name of an existing Secret holding a complete TAK Server certificate
+  # directory (keys are file names: takserver.jks, truststore-root.jks,
+  # fed-truststore.jks, admin.pem, admin.p12, ca.pem, ...). When set, the
+  # generation job is skipped entirely.
+  existingSecret: ""
+  # -- Name of the Secret created by the generation job.
+  secretName: ""
+  # -- Subject fields passed to the takserver-ca image. CA_NAME, STATE, CITY
+  # and ORGANIZATIONAL_UNIT are required by the upstream scripts. CA_NAME
+  # must be at least 5 characters or the scripts randomize it.
+  caName: tak-ca
+  country: US
+  state: XX
+  city: XX
+  organization: TAK
+  organizationalUnit: tak
+  # -- Password for the CA key, generated keystores and truststores. Must
+  # match the keystorePass/truststorePass values rendered into CoreConfig.
+  keystorePassword: atakatak
+  job:
+    # -- takserver-ca image used by the init container to generate certs.
+    caImage:
+      registry: ghcr.io
+      repository: matthew-beckett/takserver-ca
+      # -- Defaults to the chart appVersion.
+      tag: ""
+      pullPolicy: IfNotPresent
+    # -- kubectl image used to store the generated certs in a Secret.
+    # alpine/kubectl (rancher) - docker.io/bitnami/kubectl no longer carries
+    # versioned tags.
+    image:
+      registry: docker.io
+      repository: alpine/kubectl
+      tag: "1.36.4"
+      pullPolicy: IfNotPresent
+
+# -- Bundled single-instance PostGIS database deployed by this chart.
+# Disable to point at an external database via `database.host`.
+postgresql:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: postgis/postgis
+    tag: "15-3.5"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  # -- Persistence is OFF by default (emptyDir): not every cluster has a CSI
+  # driver, and an unsatisfiable PVC would block scheduling. Enable explicitly
+  # for durable deployments.
+  persistence:
+    enabled: false
+    size: 8Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+  service:
+    port: 5432
+  resources: {}
+
+# -- External database connection (used when postgresql.enabled=false).
+database:
+  host: ""
+  port: 5432
+  # -- Existing Secret holding the DB password. Overrides
+  # global.postgresql.auth.existingSecret.
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# -- JVM heap for the three embedded services. Absolute MB values override
+# `maxHeapPercent`.
+heap:
+  maxHeapPercent: 90
+  configMaxHeapMb: "1024"
+  messagingMaxHeapMb: "2048"
+  apiMaxHeapMb: "1024"
+
+plugins:
+  # -- Also launch takserver-pm.jar inside the container (TAK_PLUGINS=true).
+  enabled: false
+
+# -- Extra environment variables added to the takserver container.
+env: {}
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 0
+  fsGroup: 0
+
+securityContext: {}
+
+resources:
+  requests:
+    cpu: 1
+    memory: 5Gi
+  limits:
+    cpu: 2
+    memory: 8Gi
+
+# -- Persistent volume for /opt/tak/logs. Disabled uses emptyDir.
+logs:
+  persistence:
+    enabled: false
+    size: 4Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

@@ -1,0 +1,140 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "takserver.fullname" . }}
+  labels:
+    {{- include "takserver.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "takserver.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        {{- include "takserver.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "takserver.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: takserver
+          image: {{ include "takserver.image" (dict "image" .Values.image "global" .Values.global "appVersion" .Chart.AppVersion) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - all
+          env:
+            - name: POSTGRES_HOST
+              value: {{ include "takserver.dbHost" . | quote }}
+            - name: POSTGRES_PORT
+              value: {{ include "takserver.dbPort" . | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.global.postgresql.auth.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.global.postgresql.auth.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "takserver.dbSecretName" . }}
+                  key: {{ .Values.database.existingSecretPasswordKey }}
+            - name: MAX_HEAP_PERCENT
+              value: {{ .Values.heap.maxHeapPercent | quote }}
+            {{- with .Values.heap.configMaxHeapMb }}
+            - name: CONFIG_MAX_HEAP_MB
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.heap.messagingMaxHeapMb }}
+            - name: MESSAGING_MAX_HEAP_MB
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.heap.apiMaxHeapMb }}
+            - name: API_MAX_HEAP_MB
+              value: {{ . | quote }}
+            {{- end }}
+            - name: TAK_PLUGINS
+              value: {{ .Values.plugins.enabled | quote }}
+            {{- range $name, $value := .Values.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          ports:
+            - name: cot-tls
+              containerPort: {{ .Values.service.ports.cotTls }}
+            - name: https
+              containerPort: {{ .Values.service.ports.https }}
+            - name: fed-https
+              containerPort: {{ .Values.service.ports.fedHttps }}
+            - name: cert-enroll
+              containerPort: {{ .Values.service.ports.certEnroll }}
+            {{- if .Values.federation.enabled }}
+            - name: fed-v1
+              containerPort: {{ .Values.service.ports.federationV1 }}
+            - name: fed-v2
+              containerPort: {{ .Values.service.ports.federationV2 }}
+            {{- end }}
+          readinessProbe:
+            exec:
+              command:
+                - /opt/tak/scripts/readiness-monolith.sh
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 36
+          livenessProbe:
+            tcpSocket:
+              port: cot-tls
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            failureThreshold: 6
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: core-config
+              mountPath: /opt/tak/CoreConfig.xml
+              subPath: CoreConfig.xml
+            - name: certs
+              mountPath: /opt/tak/certs/files
+              readOnly: true
+            - name: logs
+              mountPath: /opt/tak/logs
+      volumes:
+        - name: core-config
+          secret:
+            secretName: {{ include "takserver.coreConfigSecretName" . }}
+        - name: certs
+          secret:
+            secretName: {{ include "takserver.certsSecretName" . }}
+        - name: logs
+          {{- if .Values.logs.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "takserver.fullname" . }}-logs
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- include "takserver.imagePullSecrets" (dict "context" $ "image" .Values.image) | nindent 6 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

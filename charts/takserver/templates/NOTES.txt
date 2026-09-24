@@ -1,0 +1,42 @@
+TAK Server (single-node) has been installed as release "{{ .Release.Name }}".
+
+Wait for the server to become ready (first start runs DB schema migrations and
+can take several minutes):
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "takserver.fullname" . }} --timeout=10m
+
+Endpoints (service {{ include "takserver.fullname" . }}, type {{ .Values.service.type }}):
+
+  {{ .Values.service.ports.cotTls }}   CoT streaming (mutual TLS)
+  {{ .Values.service.ports.https }}   web UI / admin / REST API (client certificate)
+  {{ .Values.service.ports.fedHttps }}   federation HTTPS
+  {{ .Values.service.ports.certEnroll }}   certificate enrollment
+{{- if .Values.federation.enabled }}
+  {{ .Values.service.ports.federationV1 }}   federation v1
+  {{ .Values.service.ports.federationV2 }}   federation v2
+{{- end }}
+
+Port-forward to reach the server from your workstation:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "takserver.fullname" . }} {{ .Values.service.ports.https }}:{{ .Values.service.ports.https }} {{ .Values.service.ports.cotTls }}:{{ .Values.service.ports.cotTls }}
+
+{{- if not .Values.certs.existingSecret }}
+
+Client and CA certificates were generated into secret
+"{{ include "takserver.certsSecretName" . }}". Extract them to connect:
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "takserver.certsSecretName" . }} -o jsonpath='{.data.admin\.p12}' | base64 -d > admin.p12
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "takserver.certsSecretName" . }} -o jsonpath='{.data.user\.p12}' | base64 -d > user.p12
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "takserver.certsSecretName" . }} -o jsonpath='{.data.ca\.pem}' | base64 -d > ca.pem
+
+  Keystore/truststore password: the value of certs.keystorePassword.
+
+NOTE: the certs Secret is not owned by this release - `helm uninstall` will
+not remove it. Delete it manually to regenerate certificates on reinstall.
+{{- end }}
+
+{{- if and (not .Values.database.existingSecret) (not .Values.global.postgresql.auth.existingSecret) (eq .Values.global.postgresql.auth.password "atakatak") }}
+
+WARNING: the database is using the default development password. Set
+global.postgresql.auth.password (or database.existingSecret) for real use.
+{{- end }}

@@ -1,0 +1,18 @@
+{{- if .Values.logs.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "takserver.fullname" . }}-logs
+  labels:
+    {{- include "takserver.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  accessModes:
+    {{- toYaml .Values.logs.persistence.accessModes | nindent 4 }}
+  {{- if .Values.logs.persistence.storageClass }}
+  storageClassName: {{ .Values.logs.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.logs.persistence.size }}
+{{- end }}
