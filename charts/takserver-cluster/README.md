@@ -1,8 +1,7 @@
 # takserver-cluster
 
 Clustered TAK Server as individually scalable microservices — the "HA"
-counterpart to [`charts/takserver`](../takserver/README.md), in the same
-spirit as the redis/redis-ha or Argo CD core/HA split:
+counterpart to [`charts/takserver`](../takserver/README.md)
 
 | Component | Kind | Default replicas | Role |
 |---|---|---|---|
