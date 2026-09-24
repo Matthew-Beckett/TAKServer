@@ -1,0 +1,61 @@
+# Default values for the ignite subchart (TAK Server clustering backend).
+
+replicaCount: 2
+
+image:
+  registry: ghcr.io
+  repository: matthew-beckett/takserver-ignite
+  # -- Defaults to this chart's appVersion (the TAK Server release tag).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+# -- The headless service name MUST resolve to "takserver-ignite" - that
+# service name is hardcoded in takserver's Kubernetes Ignite discovery
+# (IgniteConfigurationHolder). Overridden by the parent chart; do not change.
+fullnameOverride: ""
+
+rbac:
+  create: false
+
+serviceAccount:
+  create: false
+  # -- Set by the parent chart to the shared discovery service account.
+  name: takserver-ignite
+
+env:
+  IGNITE_QUIET: "false"
+  JVM_OPTS: "-Xms1g -Xmx1g -server -Djava.net.preferIPv4Stack=true"
+
+peerClassLoadingEnabled: false
+
+# -- Extra Ignite DataStorageConfiguration beans merged into the config.
+dataStorage:
+  config: ""
+
+persistence:
+  enabled: false
+  persistenceVolume:
+    size: 8Gi
+    storageClass: ""
+  walVolume:
+    size: 8Gi
+    storageClass: ""
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2
+    memory: 2Gi
+
+extraInitContainers: []
+extraContainers: []
+extraVolumes: []
+extraVolumeMounts: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""

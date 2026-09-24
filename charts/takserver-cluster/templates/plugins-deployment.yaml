@@ -1,0 +1,78 @@
+{{- if .Values.plugins.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "takserver-cluster.fullname" . }}-plugins
+  labels:
+    {{- include "takserver-cluster.componentLabels" (dict "context" $ "component" "plugins") | nindent 4 }}
+spec:
+  replicas: {{ .Values.plugins.replicas }}
+  selector:
+    matchLabels:
+      {{- include "takserver-cluster.componentSelectorLabels" (dict "context" $ "component" "plugins") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "takserver-cluster.componentSelectorLabels" (dict "context" $ "component" "plugins") | nindent 8 }}
+      {{- with .Values.plugins.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "takserver-cluster.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.ignite.enabled }}
+      initContainers:
+        - name: wait-for-ignite
+          image: {{ include "takserver-cluster.image" (dict "image" .Values.image "global" .Values.global "appVersion" .Chart.AppVersion) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -ec
+            - |
+              echo "waiting for ignite discovery on takserver-ignite:47500..."
+              until nc -zw3 takserver-ignite 47500; do sleep 2; done
+      {{- end }}
+      containers:
+        - name: takserver-plugins
+          image: {{ include "takserver-cluster.image" (dict "image" .Values.image "global" .Values.global "appVersion" .Chart.AppVersion) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - plugins
+          env:
+            {{- include "takserver-cluster.dbEnv" . | nindent 12 }}
+            {{- with .Values.plugins.maxHeapMb }}
+            - name: PLUGIN_MANAGER_MAX_HEAP_MB
+              value: {{ . | quote }}
+            {{- end }}
+            {{- range $name, $value := .Values.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.plugins.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "takserver-cluster.volumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "takserver-cluster.volumes" . | nindent 8 }}
+      {{- include "takserver-cluster.imagePullSecrets" (dict "context" $ "image" .Values.image) | nindent 6 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,32 @@
+apiVersion: v2
+name: takserver-cluster
+description: |
+  Clustered TAK Server deployed as individually scalable microservices:
+  separate config, messaging, api and plugin-manager Deployments backed by an
+  Apache Ignite cluster and NATS, plus a PostgreSQL/PostGIS database. For a
+  single-node all-in-one deployment see charts/takserver.
+type: application
+version: 0.1.0
+appVersion: 5.7-RELEASE-14
+keywords:
+  - tak
+  - takserver
+  - cot
+  - situational-awareness
+  - ha
+home: https://github.com/TAK-Product-Center/takserver
+sources:
+  - https://github.com/TAK-Product-Center/takserver
+dependencies:
+  - name: postgresql
+    version: "18.11.6"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+  - name: nats
+    version: "2.15.0"
+    repository: "https://nats-io.github.io/k8s/helm/charts/"
+    condition: nats.enabled
+  - name: ignite
+    version: "0.1.0"
+    repository: "file://third-party/ignite"
+    condition: ignite.enabled

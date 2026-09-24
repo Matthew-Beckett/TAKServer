@@ -1,0 +1,54 @@
+TAK Server (clustered) has been installed as release "{{ .Release.Name }}".
+
+Components:
+  config     x{{ .Values.config.replicas }}   centralized configuration (starts first)
+  messaging  x{{ .Values.messaging.replicas }}   CoT streaming{{- if .Values.federation.enabled }} + federation{{- end }}
+  api        x{{ .Values.api.replicas }}   web UI / REST / cert enrollment
+{{- if .Values.plugins.enabled }}
+  plugins    x{{ .Values.plugins.replicas }}   plugin manager
+{{- end }}
+{{- if .Values.ignite.enabled }}
+  ignite     x{{ .Values.ignite.replicaCount }}   cluster state (headless svc: takserver-ignite)
+{{- end }}
+{{- if .Values.nats.enabled }}
+  nats       x{{ .Values.nats.config.cluster.replicas }}   cluster messaging bus
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+  postgresql bundled PostGIS database
+{{- end }}
+
+Wait for readiness (first start runs DB migrations - can take several minutes):
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "takserver-cluster.fullname" . }}-messaging --timeout=10m
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "takserver-cluster.fullname" . }}-api --timeout=10m
+
+Endpoints (ClusterIP by default):
+
+  {{ include "takserver-cluster.fullname" . }}-messaging  {{ .Values.messaging.service.ports.cotTls }} CoT mTLS{{- if .Values.federation.enabled }}, {{ .Values.messaging.service.ports.federationV1 }}/{{ .Values.messaging.service.ports.federationV2 }} federation{{- end }}
+  {{ include "takserver-cluster.fullname" . }}-api        {{ .Values.api.service.ports.https }} web/admin, {{ .Values.api.service.ports.fedHttps }} fed HTTPS, {{ .Values.api.service.ports.certEnroll }} enrollment
+
+Port-forward to reach the API from your workstation:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "takserver-cluster.fullname" . }}-api {{ .Values.api.service.ports.https }}:{{ .Values.api.service.ports.https }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "takserver-cluster.fullname" . }}-messaging {{ .Values.messaging.service.ports.cotTls }}:{{ .Values.messaging.service.ports.cotTls }}
+
+{{- if not .Values.certs.existingSecret }}
+
+Client and CA certificates were generated into secret
+"{{ include "takserver-cluster.certsSecretName" . }}". Extract them to connect:
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "takserver-cluster.certsSecretName" . }} -o jsonpath='{.data.admin\.p12}' | base64 -d > admin.p12
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "takserver-cluster.certsSecretName" . }} -o jsonpath='{.data.user\.p12}' | base64 -d > user.p12
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "takserver-cluster.certsSecretName" . }} -o jsonpath='{.data.ca\.pem}' | base64 -d > ca.pem
+
+  Keystore/truststore password: the value of certs.keystorePassword.
+
+NOTE: the certs Secret is not owned by this release - `helm uninstall` will
+not remove it. Delete it manually to regenerate certificates on reinstall.
+{{- end }}
+
+{{- if eq .Values.global.postgresql.auth.password "atakatak" }}
+
+WARNING: the database is using the default development password. Set
+global.postgresql.auth.password (or database.existingSecret) for real use.
+{{- end }}

@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "takserver-cluster.fullname" . }}-messaging
+  labels:
+    {{- include "takserver-cluster.componentLabels" (dict "context" $ "component" "messaging") | nindent 4 }}
+  {{- with .Values.messaging.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.messaging.service.type }}
+  ports:
+    - name: cot-tls
+      port: {{ .Values.messaging.service.ports.cotTls }}
+      targetPort: cot-tls
+    {{- if .Values.federation.enabled }}
+    - name: fed-v1
+      port: {{ .Values.messaging.service.ports.federationV1 }}
+      targetPort: fed-v1
+    - name: fed-v2
+      port: {{ .Values.messaging.service.ports.federationV2 }}
+      targetPort: fed-v2
+    {{- end }}
+  selector:
+    {{- include "takserver-cluster.componentSelectorLabels" (dict "context" $ "component" "messaging") | nindent 4 }}

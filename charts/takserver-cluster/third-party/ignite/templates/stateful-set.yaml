@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "ignite.fullname" . }}
+  labels:
+    {{- include "ignite.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "ignite.selectorLabels" . | nindent 6 }}
+  serviceName: {{ include "ignite.fullname" . }}
+  replicas: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      labels:
+        {{- include "ignite.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ignite.serviceAccountName" . }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+        fsGroup: 0
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "ignite.fullname" . }}-configmap
+            items:
+              - key: default-config.xml
+                path: default-config.xml
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.extraInitContainers }}
+      initContainers:
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
+      containers:
+        {{- with .Values.extraContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        - name: ignite
+          image: {{ include "ignite.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            {{- range $name, $value := .Values.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          ports:
+            - containerPort: 11211 # JDBC port number.
+            - containerPort: 47100 # communication SPI port number.
+            - containerPort: 47500 # discovery SPI port number.
+            - containerPort: 49112 # JMX port number.
+            - containerPort: 10800 # SQL port number.
+            - containerPort: 8080  # REST port number.
+            - containerPort: 10900 # thin clients port number.
+          volumeMounts:
+            - name: config-volume
+              mountPath: /opt/ignite/config/default-config.xml
+              subPath: default-config.xml
+            {{- if .Values.persistence.enabled }}
+            - name: ignite-wal
+              mountPath: /wal
+            - name: ignite-persistence
+              mountPath: /persistence
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: ignite-persistence
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.persistence.persistenceVolume.storageClass }}
+        storageClassName: {{ .Values.persistence.persistenceVolume.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.persistenceVolume.size }}
+    - metadata:
+        name: ignite-wal
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.persistence.walVolume.storageClass }}
+        storageClassName: {{ .Values.persistence.walVolume.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.walVolume.size }}
+  {{- end }}

@@ -1,0 +1,318 @@
+# Default values for the clustered (microservices) TAK Server chart.
+# Deploys config, messaging and api as separately scalable Deployments backed
+# by Ignite, NATS and PostgreSQL/PostGIS subcharts - each of which can be
+# disabled and replaced with external endpoints.
+
+global:
+  image:
+    # -- Registry override for every image in this chart and its subcharts
+    # (air-gapped / mirrored registries). Per-image `registry` values take
+    # precedence. Also honored by the nats subchart; for the bitnami
+    # postgresql subchart use global.imageRegistry below.
+    registry: ""
+    # -- Pull secret names honored by the nats subchart (its native key).
+    pullSecretNames: []
+  # -- References to secrets in the same namespace for pulling private images.
+  imagePullSecrets: []
+  # imagePullSecrets:
+  #   - name: reg-cred
+  # -- Registry override honored by the bitnami postgresql subchart.
+  imageRegistry: ""
+  security:
+    # -- Required: the bundled postgresql subchart runs postgis/postgis,
+    # which bitnami considers an "insecure" (non-bitnami) image.
+    allowInsecureImages: true
+  postgresql:
+    # -- Single source of truth for database credentials. The bitnami
+    # subchart honors these keys; TAK Server's CoreConfig, the dbsetup job
+    # and pod POSTGRES_* env are rendered from the same values. Change them
+    # together or point `database.existingSecret` at a secret you manage.
+    auth:
+      username: martiuser
+      password: atakatak
+      database: cot
+      postgresPassword: atakatak
+      # -- Existing Secret with postgres credentials instead of the
+      # plaintext fields above. Must contain a user password key
+      # (database.existingSecretPasswordKey, default "password") and, when
+      # postgresql.enabled, an admin password key "postgres-password".
+      existingSecret: ""
+
+image:
+  registry: ghcr.io
+  repository: matthew-beckett/takserver
+  # -- Image tag. Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create the shared service account used by the Ignite nodes and all
+  # TAK Server pods (Kubernetes IP discovery requires endpoints/pods read).
+  create: true
+  # -- If you disable bundled ignite (ignite.enabled=false) you must still
+  # provide a ServiceAccount with endpoints/pods get,list,watch and a headless
+  # Service named "takserver-ignite" pointing at your Ignite nodes.
+  name: takserver-ignite
+  annotations: {}
+
+rbac:
+  # -- Create the Role/RoleBinding granting the shared service account
+  # endpoints/pods read (Ignite Kubernetes discovery), and the certgen job
+  # its secrets write.
+  create: true
+
+# -- Config microservice. Must start before messaging/api; runs a single
+# replica.
+config:
+  replicas: 1
+  maxHeapMb: "1024"
+  podAnnotations: {}
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1
+      memory: 2Gi
+
+# -- Messaging microservice. Hosts the CoT TLS input and federation ports.
+messaging:
+  replicas: 2
+  maxHeapMb: "2048"
+  podAnnotations: {}
+  resources:
+    requests:
+      cpu: 1
+      memory: 3Gi
+    limits:
+      cpu: 4
+      memory: 8Gi
+  service:
+    type: ClusterIP
+    annotations: {}
+    ports:
+      cotTls: 8089        # CoT streaming input (mutual TLS)
+      federationV1: 9000  # federation v1
+      federationV2: 9001  # federation v2
+
+# -- API microservice. Hosts the web UI / REST API / cert enrollment.
+api:
+  replicas: 2
+  maxHeapMb: "2048"
+  podAnnotations: {}
+  resources:
+    requests:
+      cpu: 1
+      memory: 3Gi
+    limits:
+      cpu: 4
+      memory: 8Gi
+  service:
+    type: ClusterIP
+    annotations: {}
+    ports:
+      https: 8443       # WebTAK / admin UI / REST API (client cert)
+      fedHttps: 8444    # federation over HTTPS (fed truststore)
+      certEnroll: 8446  # certificate enrollment (no client auth)
+
+# -- Plugin manager (takserver-pm.jar, k8cluster profile). Optional.
+plugins:
+  enabled: false
+  replicas: 1
+  maxHeapMb: "512"
+  podAnnotations: {}
+  resources: {}
+
+# -- CoreConfig.xml is rendered into a Secret from these values. Set
+# `coreConfig.existingSecret` to a Secret you manage containing a
+# `CoreConfig.xml` key for full control.
+coreConfig:
+  existingSecret: ""
+  # -- Extra XML fragments appended inside the <Configuration> element.
+  extraXml: ""
+  repository:
+    numDbConnections: 100
+    primaryKeyBatchSize: 500
+    insertionBatchSize: 500
+
+# -- TAKIgniteConfig.xml is rendered into a ConfigMap. Set
+# `igniteConfig.existingConfigMap` to supply your own (must contain a
+# TAKIgniteConfig.xml key).
+igniteConfig:
+  existingConfigMap: ""
+
+federation:
+  # -- Emit the <federation> element in CoreConfig.xml and expose ports
+  # 9000/9001 on the messaging service.
+  enabled: true
+
+cluster:
+  natsClusterId: takserver
+  # -- NATS URL rendered into CoreConfig <cluster natsURL=...>. Empty
+  # defaults to the bundled nats subchart service (<release>-nats:4222). Set
+  # this when nats.enabled=false.
+  natsUrl: ""
+
+admin:
+  # -- Auto-register the generated admin client certificate (admin.pem) with
+  # the cluster via UserManager certmod, giving it ROLE_ADMIN. Upstream's
+  # Kubernetes Ignite discovery for UserManager hardcodes the namespace to
+  # "takserver", so this ONLY works when .Release.Namespace == "takserver"
+  # (the chart fails to render otherwise). When false, the messaging pods
+  # skip admin registration - register the cert manually later with:
+  #   kubectl exec deploy/<release>-takserver-cluster-messaging -n takserver -- \
+  #     java -jar UserManager.jar certmod -A certs/files/admin.pem
+  register: false
+
+certs:
+  # -- Existing Secret holding a complete TAK Server certificate directory
+  # (keys are file names: takserver.jks, truststore-root.jks,
+  # fed-truststore.jks, admin.pem, admin.p12, ca.pem, ...). Skips the
+  # generation job.
+  existingSecret: ""
+  # -- Name of the Secret created by the generation job.
+  secretName: ""
+  # -- CA_NAME must be at least 5 characters or the scripts randomize it.
+  caName: tak-ca
+  country: US
+  state: XX
+  city: XX
+  organization: TAK
+  organizationalUnit: tak
+  # -- Password for the CA key, generated keystores and truststores. Must
+  # match the keystorePass/truststorePass values rendered into CoreConfig.
+  keystorePassword: atakatak
+  job:
+    caImage:
+      registry: ghcr.io
+      repository: matthew-beckett/takserver-ca
+      # -- Defaults to the chart appVersion.
+      tag: ""
+      pullPolicy: IfNotPresent
+    image:
+      registry: docker.io
+      repository: alpine/kubectl
+      tag: "1.36.4"
+      pullPolicy: IfNotPresent
+
+# -- Database location and credentials lookup. When postgresql.enabled the
+# host defaults to the bundled subchart service and credentials come from
+# global.postgresql.auth.
+database:
+  # -- External database host. Required when postgresql.enabled=false.
+  host: ""
+  port: 5432
+  # -- Secret holding the DB password for pod env (POSTGRES_PASSWORD). Falls
+  # back to a chart-managed Secret created from global.postgresql.auth.password.
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+dbSetup:
+  # -- Run SchemaManager (SetupGenericDatabase + upgrade) as a
+  # post-install/post-upgrade hook job. Disable only if you manage schema
+  # migrations yourself.
+  enabled: true
+
+# -- Bundled PostgreSQL subchart (bitnami). The image is overridden to
+# postgis/postgis; credentials come from global.postgresql.auth above.
+postgresql:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: postgis/postgis
+    tag: "15-3.5"
+  auth:
+    username: martiuser
+    password: atakatak
+    database: cot
+    postgresPassword: atakatak
+  primary:
+    # -- Persistence is OFF by default: an unsatisfiable PVC would block
+    # scheduling on clusters without a CSI driver. Enable explicitly.
+    persistence:
+      enabled: false
+      size: 8Gi
+    # The postgis image ignores the bitnami POSTGRES_DATABASE variable, so
+    # the cot database is created by the dbsetup job's ensure-database init
+    # container instead of an initdb script.
+    resources: {}
+
+# -- Bundled NATS subchart (nats-io). Required by cluster mode
+# (ClusterManager) unless you point cluster.natsUrl elsewhere.
+nats:
+  enabled: true
+  config:
+    cluster:
+      enabled: true
+      replicas: 3
+    jetstream:
+      enabled: true
+      fileStore:
+        enabled: false
+      memoryStore:
+        enabled: true
+        maxSize: 1Gi
+    nats:
+      port: 4222
+  natsBox:
+    enabled: false
+
+# -- Bundled Ignite subchart (vendored under third-party/ignite).
+# fullnameOverride pins the headless service name to "takserver-ignite" which
+# is hardcoded in TAK Server's Kubernetes discovery - do not change it.
+ignite:
+  enabled: true
+  fullnameOverride: takserver-ignite
+  replicaCount: 2
+  image:
+    registry: ghcr.io
+    repository: matthew-beckett/takserver-ignite
+    # -- Defaults to the ignite subchart's appVersion (same release tag as
+    # the takserver image).
+    tag: ""
+    pullPolicy: IfNotPresent
+  rbac:
+    create: false  # the parent chart owns the shared SA/Role/RoleBinding
+  serviceAccount:
+    create: false
+    name: takserver-ignite  # must match serviceAccount.name above
+  persistence:
+    enabled: false
+    persistenceVolume:
+      size: 8Gi
+      storageClass: ""
+    walVolume:
+      size: 8Gi
+      storageClass: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2
+      memory: 2Gi
+
+# -- Max heap as % of container memory limit when a component's maxHeapMb
+# is empty.
+heap:
+  maxHeapPercent: 90
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 0
+  fsGroup: 0
+
+securityContext: {}
+
+# -- Extra environment variables added to every TAK Server container
+# (config/messaging/api/plugins).
+env: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

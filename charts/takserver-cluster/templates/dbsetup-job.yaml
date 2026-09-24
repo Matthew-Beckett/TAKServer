@@ -1,0 +1,67 @@
+{{- if .Values.dbSetup.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "takserver-cluster.fullname" . }}-dbsetup
+  labels:
+    {{- include "takserver-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dbsetup
+  annotations:
+    # Runs SchemaManager (database creation helpers + schema upgrade) after
+    # install and on every upgrade so migrations stay current.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "takserver-cluster.labels" . | nindent 8 }}
+        app.kubernetes.io/component: dbsetup
+    spec:
+      restartPolicy: Never
+      {{- if .Values.postgresql.enabled }}
+      initContainers:
+        # The postgis image honors POSTGRES_USER/PASSWORD but not the bitnami
+        # POSTGRES_DATABASE variable, so the cot database is created here.
+        # The POSTGRES_USER role is the database superuser.
+        - name: ensure-database
+          image: {{ include "takserver-cluster.image" (dict "image" .Values.postgresql.image "global" .Values.global) | quote }}
+          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+          env:
+            - name: POSTGRES_HOST
+              value: {{ include "takserver-cluster.dbHost" . | quote }}
+            - name: POSTGRES_PORT
+              value: {{ include "takserver-cluster.dbPort" . | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.global.postgresql.auth.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.global.postgresql.auth.username | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "takserver-cluster.dbSecretName" . }}
+                  key: {{ .Values.database.existingSecretPasswordKey }}
+          command:
+            - sh
+            - -ec
+            - |
+              echo "waiting for postgres at ${POSTGRES_HOST}:${POSTGRES_PORT}..."
+              until pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" >/dev/null 2>&1; do sleep 2; done
+              exists=$(psql "postgresql://${POSTGRES_USER}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_USER}" -tAc "SELECT 1 FROM pg_database WHERE datname='${POSTGRES_DB}'" || true)
+              if [ "$exists" = "1" ]; then
+                echo "database ${POSTGRES_DB} already exists"
+              else
+                psql "postgresql://${POSTGRES_USER}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_USER}" -c "CREATE DATABASE \"${POSTGRES_DB}\" OWNER \"${POSTGRES_USER}\""
+              fi
+      {{- end }}
+      containers:
+        - name: dbsetup
+          image: {{ include "takserver-cluster.image" (dict "image" .Values.image "global" .Values.global "appVersion" .Chart.AppVersion) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - dbsetup
+          env:
+            {{- include "takserver-cluster.dbEnv" . | nindent 12 }}
+      {{- include "takserver-cluster.imagePullSecrets" (dict "context" $ "image" .Values.image) | nindent 6 }}
+{{- end }}

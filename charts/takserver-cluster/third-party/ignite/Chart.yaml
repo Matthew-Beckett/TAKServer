@@ -1,0 +1,8 @@
+apiVersion: v2
+name: ignite
+description: Apache Ignite cluster for TAK Server (Kubernetes discovery enabled)
+type: application
+version: 0.1.0
+# Matches the takserver-ignite image tag (published alongside the takserver
+# image, tagged with the TAK Server version - not the Ignite version).
+appVersion: 5.7-RELEASE-14

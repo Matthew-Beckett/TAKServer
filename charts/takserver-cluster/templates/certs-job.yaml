@@ -1,0 +1,108 @@
+{{- if not .Values.certs.existingSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "takserver-cluster.fullname" . }}-certpass
+  labels:
+    {{- include "takserver-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: certgen
+  annotations:
+    # Holds the keystore/CA password for the certgen job so it is never
+    # rendered as plaintext pod env. Weighted before the job (-10) and
+    # deleted once the hook succeeds.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-11"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+type: Opaque
+stringData:
+  password: {{ .Values.certs.keystorePassword | quote }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "takserver-cluster.fullname" . }}-certgen
+  labels:
+    {{- include "takserver-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: certgen
+  annotations:
+    # Generates the CA, server and client certificates before any TAK Server
+    # pod starts and stores them in the Secret named by
+    # `takserver-cluster.certsSecretName`. Existing secrets are never
+    # overwritten, so upgrades keep the same CA. The Secret itself is not a
+    # hook resource and survives `helm uninstall` - delete it manually to
+    # rotate certificates.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "takserver-cluster.labels" . | nindent 8 }}
+        app.kubernetes.io/component: certgen
+    spec:
+      serviceAccountName: {{ include "takserver-cluster.certgenServiceAccountName" . }}
+      restartPolicy: Never
+      # fsGroup 0 makes the emptyDir writable by the container's uid 1001:0.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+        fsGroup: 0
+      initContainers:
+        - name: generate-certs
+          image: {{ include "takserver-cluster.image" (dict "image" .Values.certs.job.caImage "global" .Values.global "appVersion" .Chart.AppVersion) | quote }}
+          imagePullPolicy: {{ .Values.certs.job.caImage.pullPolicy }}
+          env:
+            - name: CA_NAME
+              value: {{ .Values.certs.caName | quote }}
+            - name: COUNTRY
+              value: {{ .Values.certs.country | quote }}
+            - name: STATE
+              value: {{ .Values.certs.state | quote }}
+            - name: CITY
+              value: {{ .Values.certs.city | quote }}
+            - name: ORGANIZATION
+              value: {{ .Values.certs.organization | quote }}
+            - name: ORGANIZATIONAL_UNIT
+              value: {{ .Values.certs.organizationalUnit | quote }}
+            - name: CAPASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "takserver-cluster.fullname" . }}-certpass
+                  key: password
+            - name: PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "takserver-cluster.fullname" . }}-certpass
+                  key: password
+          volumeMounts:
+            - name: certs
+              mountPath: /opt/tak/certs/files
+      containers:
+        - name: create-secret
+          image: {{ include "takserver-cluster.image" (dict "image" .Values.certs.job.image "global" .Values.global) | quote }}
+          imagePullPolicy: {{ .Values.certs.job.image.pullPolicy }}
+          command:
+            - sh
+            - -ec
+            - |
+              if kubectl -n {{ .Release.Namespace }} get secret {{ include "takserver-cluster.certsSecretName" . }} >/dev/null 2>&1; then
+                echo "secret {{ include "takserver-cluster.certsSecretName" . }} already exists - keeping existing certificates"
+              else
+                kubectl -n {{ .Release.Namespace }} create secret generic {{ include "takserver-cluster.certsSecretName" . }} --from-file=/opt/tak/certs/files
+                kubectl -n {{ .Release.Namespace }} label secret {{ include "takserver-cluster.certsSecretName" . }} \
+                  app.kubernetes.io/name={{ include "takserver-cluster.name" . }} \
+                  app.kubernetes.io/instance={{ .Release.Name }} \
+                  app.kubernetes.io/managed-by=Helm \
+                  app.kubernetes.io/component=certgen
+              fi
+          volumeMounts:
+            - name: certs
+              mountPath: /opt/tak/certs/files
+              readOnly: true
+      volumes:
+        - name: certs
+          emptyDir: {}
+      {{- include "takserver-cluster.imagePullSecrets" (dict "context" $ "image" .Values.image) | nindent 6 }}
+{{- end }}

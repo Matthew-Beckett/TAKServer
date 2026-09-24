@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ignite.fullname" . }}-configmap
+  labels:
+    {{- include "ignite.labels" . | nindent 4 }}
+data:
+  default-config.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!--
+      Apache Ignite configuration with Kubernetes IP finder for TAK Server
+      clustering. Ignite server nodes discover each other, and TAK Server
+      client nodes discover the cluster, through the headless service
+      {{ include "ignite.fullname" . }} in namespace {{ .Release.Namespace }}.
+    -->
+    <beans xmlns="http://www.springframework.org/schema/beans"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="
+            http://www.springframework.org/schema/beans
+            http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+        <bean class="org.apache.ignite.configuration.IgniteConfiguration">
+
+            <property name="peerClassLoadingEnabled" value="{{ .Values.peerClassLoadingEnabled | default false }}"/>
+
+            <!-- Ignite Data Storage Configuration -->
+            <property name="dataStorageConfiguration">
+                <bean class="org.apache.ignite.configuration.DataStorageConfiguration">
+{{- if .Values.persistence.enabled }}
+                    <!-- Ignite Persistent Storage -->
+                    <property name="defaultDataRegionConfiguration">
+                        <bean class="org.apache.ignite.configuration.DataRegionConfiguration">
+                            <property name="persistenceEnabled" value="true"/>
+                        </bean>
+                    </property>
+                    <property name="storagePath" value="/persistence"/>
+                    <property name="walPath" value="/wal"/>
+                    <property name="walArchivePath" value="/wal/archive"/>
+{{- end }}
+{{ .Values.dataStorage.config | indent 20 }}
+                </bean>
+            </property>
+
+            <!-- Kubernetes discovery -->
+            <property name="discoverySpi">
+                <bean class="org.apache.ignite.spi.discovery.tcp.TcpDiscoverySpi">
+                    <property name="ipFinder">
+                        <bean class="org.apache.ignite.spi.discovery.tcp.ipfinder.kubernetes.TcpDiscoveryKubernetesIpFinder">
+                            <property name="namespace" value="{{ .Release.Namespace }}"/>
+                            <property name="serviceName" value="{{ include "ignite.fullname" . }}"/>
+                        </bean>
+                    </property>
+                </bean>
+            </property>
+        </bean>
+    </beans>

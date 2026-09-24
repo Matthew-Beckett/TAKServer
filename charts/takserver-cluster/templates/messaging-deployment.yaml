@@ -1,0 +1,123 @@
+{{- if and .Values.admin.register (ne .Release.Namespace "takserver") }}
+{{- fail "admin.register=true requires the release namespace to be \"takserver\": upstream's UserManager Kubernetes discovery hardcodes namespace \"takserver\". Reinstall with -n takserver, or leave admin.register=false and register the cert manually." }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "takserver-cluster.fullname" . }}-messaging
+  labels:
+    {{- include "takserver-cluster.componentLabels" (dict "context" $ "component" "messaging") | nindent 4 }}
+spec:
+  replicas: {{ .Values.messaging.replicas }}
+  selector:
+    matchLabels:
+      {{- include "takserver-cluster.componentSelectorLabels" (dict "context" $ "component" "messaging") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "takserver-cluster.componentSelectorLabels" (dict "context" $ "component" "messaging") | nindent 8 }}
+      {{- with .Values.messaging.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "takserver-cluster.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-deps
+          image: {{ include "takserver-cluster.image" (dict "image" .Values.image "global" .Values.global "appVersion" .Chart.AppVersion) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: POSTGRES_HOST
+              value: {{ include "takserver-cluster.dbHost" . | quote }}
+            - name: POSTGRES_PORT
+              value: {{ include "takserver-cluster.dbPort" . | quote }}
+          command:
+            - sh
+            - -ec
+            - |
+              echo "waiting for postgres at ${POSTGRES_HOST}:${POSTGRES_PORT}..."
+              until nc -zw3 "$POSTGRES_HOST" "$POSTGRES_PORT"; do sleep 2; done
+              {{- if .Values.ignite.enabled }}
+              echo "waiting for ignite discovery on takserver-ignite:47500..."
+              until nc -zw3 takserver-ignite 47500; do sleep 2; done
+              {{- end }}
+      containers:
+        - name: takserver-messaging
+          image: {{ include "takserver-cluster.image" (dict "image" .Values.image "global" .Values.global "appVersion" .Chart.AppVersion) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - messaging
+          env:
+            {{- include "takserver-cluster.dbEnv" . | nindent 12 }}
+            - name: MAX_HEAP_PERCENT
+              value: {{ .Values.heap.maxHeapPercent | default 90 | quote }}
+            {{- with .Values.messaging.maxHeapMb }}
+            - name: MESSAGING_MAX_HEAP_MB
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.admin.register }}
+            # UserManager (enable-admin.sh / readiness-messaging.sh) uses the
+            # Kubernetes Ignite discovery path, which hardcodes the service
+            # name "takserver-ignite" and namespace "takserver".
+            - name: TAKCL_K8S_MODE
+              value: "true"
+            {{- else }}
+            # Point the admin-cert watcher at a path that never exists so
+            # enable-admin.sh skips registration and readiness-messaging.sh
+            # skips its ROLE_ADMIN check.
+            - name: ADMIN_CERT
+              value: /opt/tak/certs/files/.admin-disabled
+            {{- end }}
+            {{- range $name, $value := .Values.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          ports:
+            - name: cot-tls
+              containerPort: {{ .Values.messaging.service.ports.cotTls }}
+            {{- if .Values.federation.enabled }}
+            - name: fed-v1
+              containerPort: {{ .Values.messaging.service.ports.federationV1 }}
+            - name: fed-v2
+              containerPort: {{ .Values.messaging.service.ports.federationV2 }}
+            {{- end }}
+          readinessProbe:
+            exec:
+              command:
+                - /opt/tak/scripts/readiness-messaging.sh
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 36
+          livenessProbe:
+            tcpSocket:
+              port: cot-tls
+            initialDelaySeconds: 240
+            periodSeconds: 30
+            failureThreshold: 6
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.messaging.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "takserver-cluster.volumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "takserver-cluster.volumes" . | nindent 8 }}
+      {{- include "takserver-cluster.imagePullSecrets" (dict "context" $ "image" .Values.image) | nindent 6 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

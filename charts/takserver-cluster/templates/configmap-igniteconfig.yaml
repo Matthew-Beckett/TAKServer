@@ -1,0 +1,21 @@
+{{- if not .Values.igniteConfig.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "takserver-cluster.igniteConfigMapName" . }}
+  labels:
+    {{- include "takserver-cluster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+data:
+  TAKIgniteConfig.xml: |
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <!--
+      clusterKubernetes tells TAK Server to discover Ignite nodes through the
+      headless Service "takserver-ignite" (hardcoded in
+      IgniteConfigurationHolder) in igniteClusterNamespace.
+    -->
+    <TAKIgniteConfiguration xmlns="http://bbn.com/marti/xml/config"
+                            clusterEnabled="true"
+                            clusterKubernetes="true"
+                            igniteClusterNamespace="{{ .Release.Namespace }}"/>
+{{- end }}
