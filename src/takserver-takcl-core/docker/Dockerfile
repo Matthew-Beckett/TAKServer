@@ -1,4 +1,4 @@
-FROM centos:7
+FROM centos:8
 
 # Setup basic environment
 RUN yum install -y epel-release
