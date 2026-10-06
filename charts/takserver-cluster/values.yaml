@@ -224,7 +224,7 @@ postgresql:
   image:
     registry: docker.io
     repository: postgis/postgis
-    tag: "15-3.5"
+    tag: "17-3.5"
   auth:
     username: martiuser
     password: atakatak
