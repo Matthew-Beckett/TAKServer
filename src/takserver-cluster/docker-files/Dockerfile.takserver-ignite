@@ -1,5 +1,5 @@
 # Use a Java 17 base image
-FROM eclipse-temurin:17-jammy
+FROM eclipse-temurin:25-jammy
 
 # Install unzip curl, and nc (used for startup ordering)
 RUN apt-get update && apt-get install -y unzip curl netcat && rm -rf /var/lib/apt/lists/*

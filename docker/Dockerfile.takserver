@@ -5,7 +5,7 @@
 # Minimal JRE base, non-root (uid 1001, gid 0 for OpenShift compatibility).
 # CoreConfig.xml, TAKIgniteConfig.xml and certificates are NOT baked in -
 # mount them at runtime (see docker/README.md).
-FROM eclipse-temurin:17-jre-noble
+FROM eclipse-temurin:25-jre-noble
 
 # hadolint ignore=DL3008
 RUN apt-get update \

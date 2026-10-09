@@ -1,6 +1,6 @@
 # Apache Ignite node for TAK Server clustering.
 # Minimal JRE base, non-root, with the TAK ignite-extensions.jar baked in.
-FROM eclipse-temurin:17-jre-noble
+FROM eclipse-temurin:25-jre-noble
 
 ARG IGNITE_VERSION=2.17.0
 

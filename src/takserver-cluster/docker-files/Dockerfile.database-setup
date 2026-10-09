@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17-jammy
+FROM eclipse-temurin:25-jammy
 
 # Netcat is necessary to check if the remote server is open for use.
 # This could probably be replaced by a "-wait" parameter or something similar in SchemaManager.jar
