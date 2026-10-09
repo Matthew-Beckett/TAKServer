@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17-jammy
+FROM eclipse-temurin:25-jammy
 RUN apt-get update && apt-get install -y emacs-nox net-tools netcat
 COPY takserver-core/takserver-core*.war takserver.war
 COPY takserver-core/setenv-cluster.sh setenv.sh

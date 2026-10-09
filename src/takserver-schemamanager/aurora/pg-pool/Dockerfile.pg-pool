@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17-jammy
+FROM eclipse-temurin:25-jammy
 ARG URL_WRITER
 ARG URL_READER
 ARG DB_USER
